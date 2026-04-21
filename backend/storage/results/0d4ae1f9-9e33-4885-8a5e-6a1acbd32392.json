@@ -1,0 +1,35 @@
+{
+  "status": "success",
+  "metadata": {
+    "analysis_id": "0d4ae1f9-9e33-4885-8a5e-6a1acbd32392",
+    "original_filename": "TE14_zi134_18C_F_wing_2_250815_001.png",
+    "saved_filename": "0d4ae1f9-9e33-4885-8a5e-6a1acbd32392.png",
+    "content_type": "image/png",
+    "width": 1360,
+    "height": 1024,
+    "timestamp_utc": "2026-04-21T09:25:25.141325+00:00",
+    "model_version": "best.pt",
+    "task": "wing_l3_straight",
+    "method": "2_keypoint_pose"
+  },
+  "point_8": {
+    "x": 1287.169921875,
+    "y": 327.4119567871094,
+    "confidence": 0.9259811043739319
+  },
+  "point_13": {
+    "x": 0.0,
+    "y": 0.0,
+    "confidence": 0.429215669631958
+  },
+  "measurement": {
+    "straight": {
+      "length_px": 1328.1585,
+      "length_mm": 1.643761,
+      "pixels_per_mm": 808.0
+    }
+  },
+  "reviewer_status": "pending",
+  "overlay_path": "storage/results/0d4ae1f9-9e33-4885-8a5e-6a1acbd32392_overlay.jpg",
+  "json_path": "storage/results/0d4ae1f9-9e33-4885-8a5e-6a1acbd32392.json"
+}

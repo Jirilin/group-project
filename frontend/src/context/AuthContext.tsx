@@ -2,6 +2,7 @@ import React, { createContext, useState, useContext, useEffect } from 'react';
 import api from '../services/api';
 import { User, LoginResponse } from '../types';
 
+
 interface AuthContextType {
   user: User | null;
   login: (email: string, password: string) => Promise<void>;

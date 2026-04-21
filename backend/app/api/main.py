@@ -80,6 +80,18 @@ async def analyze_image(
     overlay_path = settings.results_dir / f"{analysis_id}_overlay.jpg"
     draw_overlay(image, point_8, point_13, overlay_path)
 
+      # Prepare straight measurement
+    straight_measurement = {
+        "length_px": measurement["straight"]["length_px"],
+        "length_mm": measurement["straight"]["length_mm"],
+        "pixels_per_mm": measurement["straight"]["pixels_per_mm"],
+    }
+    # For initial analysis, curved is None
+    measurement_output = {
+        "straight": straight_measurement,
+        "curved": None,
+    }
+
     response_payload = {
         "status": "success",
         "metadata": {
@@ -96,7 +108,7 @@ async def analyze_image(
         },
         "point_8": pred["point_8"],
         "point_13": pred["point_13"],
-        "measurement": measurement,
+        "measurement": measurement_output,
         "reviewer_status": "pending",
         "overlay_path": str(overlay_path),
         "json_path": str(settings.results_dir / f"{analysis_id}.json"),
@@ -108,7 +120,6 @@ async def analyze_image(
 
 @app.post("/review/{analysis_id}", response_model=ReviewResponse)
 def review_analysis(analysis_id: str, payload: ReviewRequest):
-    # ... (keep existing review logic unchanged)
     result_json = settings.results_dir / f"{analysis_id}.json"
     if not result_json.exists():
         raise HTTPException(status_code=404, detail="Analysis not found")
@@ -116,23 +127,30 @@ def review_analysis(analysis_id: str, payload: ReviewRequest):
     with open(result_json, "r", encoding="utf-8") as f:
         data = json.load(f)
 
-    ppm = data["measurement"]["pixels_per_mm"]
+    ppm = data["measurement"]["straight"]["pixels_per_mm"]
     point_8 = (payload.point_8.x, payload.point_8.y)
     point_13 = (payload.point_13.x, payload.point_13.y)
 
-    review_data, review_path = save_review(
-        analysis_id=analysis_id,
-        point_8=point_8,
-        point_13=point_13,
-        reviewer=payload.reviewer,
-        decision=payload.decision,
-        comment=payload.comment,
-        pixels_per_mm=ppm,
-    )
+    # Compute straight measurement
+    straight_meas = compute_measurement(point_8, point_13, pixels_per_mm=ppm)["straight"]
 
-    data["point_8"] = {"x": payload.point_8.x, "y": payload.point_8.y, "confidence": payload.point_8.confidence}
-    data["point_13"] = {"x": payload.point_13.x, "y": payload.point_13.y, "confidence": payload.point_13.confidence}
-    data["measurement"] = review_data["measurement"]
+    # Compute curved measurement if provided
+    curved_meas = None
+    if payload.curved_points and len(payload.curved_points) >= 2:
+        curved_points_tuples = [(p.x, p.y) for p in payload.curved_points]
+        curved_meas = compute_measurement(
+            point_8, point_13,
+            curved_path=curved_points_tuples,
+            pixels_per_mm=ppm
+        ).get("curved")
+
+    # Update data
+    data["point_8"] = {"x": point_8[0], "y": point_8[1], "confidence": payload.point_8.confidence}
+    data["point_13"] = {"x": point_13[0], "y": point_13[1], "confidence": payload.point_13.confidence}
+    data["measurement"] = {
+        "straight": straight_meas,
+        "curved": curved_meas,
+    }
     data["reviewer_status"] = payload.decision
 
     export_json(data, result_json)
@@ -142,8 +160,8 @@ def review_analysis(analysis_id: str, payload: ReviewRequest):
         "status": "success",
         "analysis_id": analysis_id,
         "reviewer_status": payload.decision,
-        "measurement": review_data["measurement"],
-        "review_path": str(review_path),
+        "measurement": data["measurement"],
+        "review_path": str(settings.results_dir / f"{analysis_id}_review.json"),
     }
 
 @app.get("/result/{analysis_id}")

@@ -1,5 +1,3 @@
-// types.ts – single flat file for all shared types
-
 export interface User {
   id: number;
   email: string;
@@ -30,12 +28,23 @@ export interface Point2D {
   confidence?: number | null;
 }
 
-export interface Measurement {
-  straight: {
-    length_px: number;
-    length_mm: number;
-    pixels_per_mm: number;
-  };
+export interface StraightMeasurement {
+  length_px: number;
+  length_mm: number;
+  pixels_per_mm: number;
+}
+
+export interface CurvedMeasurement {
+  length_px: number;
+  length_mm: number;
+  pixels_per_mm: number;
+  num_points: number;
+  points: Point2D[];
+}
+
+export interface MeasurementOutput {
+  straight: StraightMeasurement;
+  curved: CurvedMeasurement | null;
 }
 
 export interface AnalysisResult {
@@ -43,11 +52,20 @@ export interface AnalysisResult {
   metadata: AnalysisMetadata;
   point_8: Point2D;
   point_13: Point2D;
-  measurement: Measurement;
+  measurement: MeasurementOutput;
   reviewer_status: string;
   overlay_path: string;
   json_path: string;
 }
+
+export interface Measurement {
+  length_px: number;
+  length_mm: number;
+  pixels_per_mm: number;
+  curved_length_px?: number | null;
+  curved_length_mm?: number | null;
+}
+
 
 export interface AnalysisRecord {
   id: number;

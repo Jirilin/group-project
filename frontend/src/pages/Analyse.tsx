@@ -8,9 +8,10 @@ const Analyse = () => {
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [point8, setPoint8] = useState<Point2D>({ x: 0, y: 0 });
   const [point13, setPoint13] = useState<Point2D>({ x: 0, y: 0 });
+  const [curvedPoints, setCurvedPoints] = useState<Point2D[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [dragging, setDragging] = useState<'p8' | 'p13' | null>(null);
+  const [draggingIndex, setDraggingIndex] = useState<number | null>(null); // -1 for point8, -2 for point13, >=0 for curvedPoints
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const imgRef = useRef<HTMLImageElement | null>(null);
@@ -21,6 +22,7 @@ const Analyse = () => {
       setFile(selected);
       setImageUrl(URL.createObjectURL(selected));
       setResult(null);
+      setCurvedPoints([]);
     }
   };
 
@@ -37,6 +39,12 @@ const Analyse = () => {
       setResult(res.data);
       setPoint8(res.data.point_8);
       setPoint13(res.data.point_13);
+      // Initialize curved points with the endpoints if no curve exists
+      if (!res.data.measurement.curved) {
+        setCurvedPoints([res.data.point_8, res.data.point_13]);
+      } else {
+        setCurvedPoints(res.data.measurement.curved.points);
+      }
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Analysis failed');
     } finally {
@@ -44,19 +52,10 @@ const Analyse = () => {
     }
   };
 
-  // Load image into canvas and draw
+  // Draw canvas whenever relevant state changes
   useEffect(() => {
-    if (!imageUrl || !canvasRef.current) return;
-    const img = new Image();
-    img.src = imageUrl;
-    img.onload = () => {
-      imgRef.current = img;
-      const canvas = canvasRef.current!;
-      canvas.width = img.width;
-      canvas.height = img.height;
-      drawCanvas();
-    };
-  }, [imageUrl, point8, point13]);
+    drawCanvas();
+  }, [imageUrl, point8, point13, curvedPoints]);
 
   const drawCanvas = () => {
     const canvas = canvasRef.current;
@@ -65,28 +64,87 @@ const Analyse = () => {
     const ctx = canvas.getContext('2d')!;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(img, 0, 0);
-    // Draw line
+
+    // Draw curved path (green)
+    if (curvedPoints.length >= 2) {
+      ctx.beginPath();
+      ctx.moveTo(curvedPoints[0].x, curvedPoints[0].y);
+      for (let i = 1; i < curvedPoints.length; i++) {
+        ctx.lineTo(curvedPoints[i].x, curvedPoints[i].y);
+      }
+      ctx.strokeStyle = '#10b981';
+      ctx.lineWidth = 3;
+      ctx.stroke();
+    }
+
+    // Draw straight line between point8 and point13 (blue dashed)
     ctx.beginPath();
     ctx.moveTo(point8.x, point8.y);
     ctx.lineTo(point13.x, point13.y);
     ctx.strokeStyle = '#3b82f6';
     ctx.lineWidth = 2;
+    ctx.setLineDash([5, 5]);
     ctx.stroke();
-    // Draw point 8
+    ctx.setLineDash([]);
+
+    // Draw curved points (green circles)
+    curvedPoints.forEach((p, idx) => {
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 5, 0, 2 * Math.PI);
+      ctx.fillStyle = '#10b981';
+      ctx.fill();
+      ctx.strokeStyle = 'white';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    });
+
+    // Draw point8 (blue)
     ctx.beginPath();
-    ctx.arc(point8.x, point8.y, 6, 0, 2 * Math.PI);
-    ctx.fillStyle = '#10b981';
+    ctx.arc(point8.x, point8.y, 7, 0, 2 * Math.PI);
+    ctx.fillStyle = '#3b82f6';
     ctx.fill();
     ctx.strokeStyle = 'white';
     ctx.lineWidth = 2;
     ctx.stroke();
-    // Draw point 13
+
+    // Draw point13 (red)
     ctx.beginPath();
-    ctx.arc(point13.x, point13.y, 6, 0, 2 * Math.PI);
+    ctx.arc(point13.x, point13.y, 7, 0, 2 * Math.PI);
     ctx.fillStyle = '#ef4444';
     ctx.fill();
     ctx.strokeStyle = 'white';
+    ctx.lineWidth = 2;
     ctx.stroke();
+  };
+
+  // Load image when imageUrl changes
+  useEffect(() => {
+    if (!imageUrl) return;
+    const img = new Image();
+    img.src = imageUrl;
+    img.onload = () => {
+      imgRef.current = img;
+      if (canvasRef.current) {
+        canvasRef.current.width = img.width;
+        canvasRef.current.height = img.height;
+      }
+      drawCanvas();
+    };
+  }, [imageUrl]);
+
+  // Helper to find which point is being dragged
+  const getDraggableIndex = (mouseX: number, mouseY: number): number | null => {
+    const threshold = 15;
+    // Check point8
+    if (Math.hypot(mouseX - point8.x, mouseY - point8.y) < threshold) return -1;
+    // Check point13
+    if (Math.hypot(mouseX - point13.x, mouseY - point13.y) < threshold) return -2;
+    // Check curved points
+    for (let i = 0; i < curvedPoints.length; i++) {
+      const p = curvedPoints[i];
+      if (Math.hypot(mouseX - p.x, mouseY - p.y) < threshold) return i;
+    }
+    return null;
   };
 
   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -98,15 +156,12 @@ const Analyse = () => {
     const mouseX = (e.clientX - rect.left) * scaleX;
     const mouseY = (e.clientY - rect.top) * scaleY;
 
-    const dist8 = Math.hypot(mouseX - point8.x, mouseY - point8.y);
-    const dist13 = Math.hypot(mouseX - point13.x, mouseY - point13.y);
-    const threshold = 15;
-    if (dist8 < threshold) setDragging('p8');
-    else if (dist13 < threshold) setDragging('p13');
+    const idx = getDraggableIndex(mouseX, mouseY);
+    setDraggingIndex(idx);
   };
 
   const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!dragging || !canvasRef.current) return;
+    if (draggingIndex === null || !canvasRef.current) return;
     const canvas = canvasRef.current;
     const rect = canvas.getBoundingClientRect();
     const scaleX = canvas.width / rect.width;
@@ -114,27 +169,52 @@ const Analyse = () => {
     const mouseX = Math.max(0, Math.min(canvas.width, (e.clientX - rect.left) * scaleX));
     const mouseY = Math.max(0, Math.min(canvas.height, (e.clientY - rect.top) * scaleY));
 
-    if (dragging === 'p8') {
+    if (draggingIndex === -1) {
       setPoint8({ x: mouseX, y: mouseY });
-    } else {
+      // Update curvedPoints first/last if they match
+      if (curvedPoints.length > 0) {
+        const newCurved = [...curvedPoints];
+        newCurved[0] = { x: mouseX, y: mouseY };
+        setCurvedPoints(newCurved);
+      }
+    } else if (draggingIndex === -2) {
       setPoint13({ x: mouseX, y: mouseY });
+      if (curvedPoints.length > 0) {
+        const newCurved = [...curvedPoints];
+        newCurved[newCurved.length - 1] = { x: mouseX, y: mouseY };
+        setCurvedPoints(newCurved);
+      }
+    } else {
+      const newCurved = [...curvedPoints];
+      newCurved[draggingIndex] = { x: mouseX, y: mouseY };
+      setCurvedPoints(newCurved);
     }
+    drawCanvas();
   };
 
   const handleMouseUp = () => {
-    setDragging(null);
+    setDraggingIndex(null);
+  };
+
+  const handleAddPoint = () => {
+    // Add a point midway between point8 and point13 as a simple default
+    const midX = (point8.x + point13.x) / 2;
+    const midY = (point8.y + point13.y) / 2;
+    setCurvedPoints([point8, { x: midX, y: midY }, point13]);
   };
 
   const handleSaveAdjustment = async () => {
     if (!result) return;
     try {
-      const res = await api.post(`/review/${result.metadata.analysis_id}`, {
-        point_8: { x: point8.x, y: point8.y },
-        point_13: { x: point13.x, y: point13.y },
+      const payload = {
+        point_8: point8,
+        point_13: point13,
+        curved_points: curvedPoints.length >= 2 ? curvedPoints : null,
         reviewer: 'user',
         decision: 'adjusted',
         comment: 'Adjusted via canvas',
-      });
+      };
+      const res = await api.post(`/review/${result.metadata.analysis_id}`, payload);
       setResult({ ...result, ...res.data, point_8: point8, point_13: point13 });
     } catch (err: any) {
       setError('Failed to save adjustment');
@@ -147,6 +227,7 @@ const Analyse = () => {
       await api.post(`/review/${result.metadata.analysis_id}`, {
         point_8: point8,
         point_13: point13,
+        curved_points: curvedPoints.length >= 2 ? curvedPoints : null,
         reviewer: 'user',
         decision: 'accepted',
       });
@@ -164,6 +245,9 @@ const Analyse = () => {
         <button onClick={handleAnalyse} disabled={!file || loading} className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 disabled:opacity-50">
           {loading ? 'Analysing...' : 'Analyse'}
         </button>
+        {imageUrl && (
+          <button onClick={handleAddPoint} className="bg-gray-600 text-white px-4 py-2 rounded">Add Midpoint</button>
+        )}
       </div>
       {error && <div className="text-red-600">{error}</div>}
       {imageUrl && (
@@ -178,7 +262,10 @@ const Analyse = () => {
           />
           {result && (
             <div className="mt-4 space-y-2">
-              <p>Length: <strong>{result.measurement.straight.length_mm.toFixed(4)} mm</strong> ({result.measurement.straight.length_px.toFixed(1)} px)</p>
+              <p>Straight length: <strong>{result.measurement.straight.length_mm.toFixed(4)} mm</strong> ({result.measurement.straight.length_px.toFixed(1)} px)</p>
+              {result.measurement.curved && (
+                <p>Curved length: <strong>{result.measurement.curved.length_mm.toFixed(4)} mm</strong> ({result.measurement.curved.length_px.toFixed(1)} px, {result.measurement.curved.num_points} points)</p>
+              )}
               <p>Status: {result.reviewer_status}</p>
               <div className="space-x-2">
                 <button onClick={handleAccept} className="bg-green-600 text-white px-4 py-2 rounded">Accept</button>
